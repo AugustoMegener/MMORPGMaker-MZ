@@ -101,7 +101,7 @@ class Database {
         // We create the tables asynchronously
         const tableList = await db.tableList().run(this.connection);
         const tablePromises = [];
-        for (const table of ["users", "maps", "events", "encounters", "banks", "config"]) {
+        for (const table of ["users", "maps", "events", "encounters", "map_override", "banks", "config"]) {
             if (!tableList.includes(table)) {
                 tablePromises.push(db.tableCreate(table).run(this.connection).then(() => {
                     console.log(`[I] Table ${table} was created successfully`);
@@ -127,9 +127,15 @@ class Database {
         const mapInfos = JSON.parse(
           await fs.promises.readFile(path.join(mapFolder, "MapInfos.json"), 'utf8')
         ).filter(Boolean); // Removing the `null` element
+
         for (const mapInfo of mapInfos) {
             const existingMap = await db.table("maps").get(mapInfo.id).run(this.connection);
-            if (existingMap) continue;
+            if (existingMap) {
+                // Update
+                await db.table("events").filter({ mapId: mapInfo.id }).delete().run(this.connection);
+                await db.table("encounters").filter({ mapId: mapInfo.id }).delete().run(this.connection);
+                await db.table("maps").get(mapInfo.id).delete().run(this.connection);
+            }
             const mapFileId = String(mapInfo.id).padStart(3, "0");
             const mapData = JSON.parse(
               await fs.promises.readFile(path.join(mapFolder, `Map${mapFileId}.json`), 'utf8')
@@ -155,8 +161,8 @@ class Database {
             console.log(`[I] Created map ${mapInfo.name}...`);
         }
 
-        const existingConfig = await db.table("config")(0);
-        if (!existingConfig) {
+        const existingConfig = await db.table("config").getAll().run(this.connection)
+        if ((await existingConfig.toArray()).length === 0) {
             await db.table("config").insert([initialServerConfig]).run(this.connection);
             console.log("[I] Initial server configuration was created with success.");
         }
@@ -197,7 +203,7 @@ class Database {
             username: userDetails.username,
             password: (this.config.passwordRequired && userDetails.password) ?
               MMO_Core.security.hashPassword(userDetails.password) :
-              undefined
+             ''
         };
 
         await r.db("mmorpg").table("users").insert(userPayload).run(this.connection);
@@ -237,21 +243,27 @@ class Database {
         const map = returnFullObject ?
           await r.db("mmorpg").table("maps").get(id).run(this.connection) :
           {};
+        delete map.parentId;
         return {
             ...map,
-            events: await events.toArray().map(event => {
-                event.id = event.idInMap;
-                delete event.idInMap;
-                return event;
-            }),
+            events: [
+                null,
+                ...(await events.toArray()).map(event => {
+                    event.id = event.idInMap;
+                    delete event.idInMap;
+                    delete event.mapId;
+                    delete event.parentId;
+                    return event;
+                })
+            ],
             encounterList: await encounterList.toArray()
         };
     }
     // Banks
     async getBanks() {
         await this.connect();
-        const banks = r.db("mmorpg").table("banks").run(this.connection);
-        return await banks.toArray();
+        const banks = r.db("mmorpg").table("banks").getAll().run(this.connection);
+        return banks;
     }
 
     async getBank(name) {

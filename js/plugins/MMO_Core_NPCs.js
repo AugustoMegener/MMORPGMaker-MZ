@@ -16,7 +16,7 @@ function MMO_Core_Npcs() {
 (function () {
   MMO_Core_Npcs.Npcs = {};
 
-  /* npcModel : 
+  /* npcModel :
     ConnectedNpc: {
       uniqueId: string, // `@${instance.id}#${instance.connectedNpcs.length}?${npc.id}` // Every NPC has to be clearly differentiable
       eventId: number, // Event "ID" client-side
@@ -51,11 +51,11 @@ function MMO_Core_Npcs() {
     if (!$gameMap || !name || !prop) return
     return $gameMap._events.find(event => event && event._eventData && event._eventData[name] && event._eventData[name] === prop);
   }
-  
+
   MMO_Core_Npcs.addNpc = (data) => {
     const spriteName = data._image.characterName;
     const spriteDir = data._image.characterIndex;
-    
+
     MMO_Core_Npcs.Npcs[data.id] = $gameMap.createNormalEventAt(spriteName, spriteDir, data.x, data.y, 2, 0, true, data.pages, data.uniqueId);
     MMO_Core_Npcs.Npcs[data.id].setPosition(data.x, data.y);
     // console.log('MMO_Core_Npcs.Npcs[data.id]', MMO_Core_Npcs.Npcs[data.id])
@@ -63,18 +63,18 @@ function MMO_Core_Npcs() {
 
   MMO_Core.socket.on("npcsFetched", async (data) => {
     if (data.playerId !== MMO_Core_Player.Player["id"]) return;
-    else data.npcs.map(npc => {
+    for (const npc of data.npcs) {
       if ($gameMap._events[npc.eventId]) $gameMap.eraseEvent(npc.eventId);
       if (MMO_Core_Npcs.findConnectedNpc(npc)) $gameMap.eraseConnectedEvent(npc.uniqueId);
       MMO_Core_Npcs.addNpc(npc);
-    });
+    }
   });
 
   MMO_Core.socket.on("npcSpawn", async (data) => {
     if(!$gameMap || $gameMap._mapId !== data.mapId) return;
     if (data.summonable) MMO_Core_Npcs.addNpc(data);
   });
-  
+
   MMO_Core.socket.on("npcRespawn", (data) => {
     if(!$gameMap || $gameMap._mapId !== data.mapId) return;
     MMO_Core_Npcs.addNpc(data);
@@ -84,12 +84,12 @@ function MMO_Core_Npcs() {
   MMO_Core.socket.on("npcLooted",function(data){
     if(!$gameMap || $gameMap._mapId !== data.mapId) return;
     if (!MMO_Core_Npcs.Npcs[data.uniqueId]) return;
-    $gameMap.eraseConnectedEvent(npc.uniqueId);
+    $gameMap.eraseConnectedEvent(data.uniqueId);
   });
 
   MMO_Core.socket.on("npcRemove",function(data){
     if(!MMO_Core_Npcs.findConnectedNpc(data.uniqueId)) return;
-    $gameMap.eraseConnectedEvent(npc.uniqueId);
+    $gameMap.eraseConnectedEvent(data.uniqueId);
   });
 
   MMO_Core.socket.on('npc_moving', function(data){

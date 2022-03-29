@@ -23,7 +23,11 @@ router.get("/:name", async (req, res) => {
   const mapInfo = await database.getMap(id, true);
   delete mapInfo.id;
   delete mapInfo.name;
-  mapInfo.events.unshift(null);
+  const portal = mapInfo.events.filter(Boolean).find(e => /^<TP:(.+)>$/.test(e.note));
+  if (portal) {
+    // Modif de portal pour que ça TP
+
+  }
   res.json(mapInfo);
 });
 
