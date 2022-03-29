@@ -87,39 +87,49 @@ class Database {
         if (this.initialized) return;
         await this.connect();
         const dbList = await r.dbList().run(this.connection);
-        if (dbList.includes("mmorpg")) {
-            MMO_Core.security.loadTokens();
-            console.log("[I] Database initialized with success"); // And we abort any additional procedures
-            this.initialized = true;
-            return;
+        if (!dbList.includes("mmorpg")) {
+            console.log("[O] I have not found the database! 😱  Let me fix that for you...");
+            // Else, we create the database and its tables
+            await r.dbCreate("mmorpg").run(this.connection);
+            this.connection.use("mmorpg");
+            console.log("[I] Database was created with success");
+        } else {
+            console.log("[I] Database initialized with success");
         }
-        console.log("[O] I have not found the database! 😱  Let me fix that for you...");
-        // Else, we create the database and its tables
-        await r.dbCreate("mmorpg").run(this.connection);
-        this.connection.use("mmorpg");
-        console.log("[I] Database was created with success");
 
+        const db = r.db("mmorpg");
         // We create the tables asynchronously
-        await Promise.all(["users", "maps", "events", "encounters", "banks", "config"]
-          .map((table) => r.db("mmorpg").tableCreate(table).run(this.connection).then(() => {
-            console.log(`[I] Table ${table} was created successfully`);
-          }))
-        );
+        const tableList = await db.tableList().run(this.connection);
+        const tablePromises = [];
+        for (const table of ["users", "maps", "events", "encounters", "banks", "config"]) {
+            if (!tableList.includes(table)) {
+                tablePromises.push(db.tableCreate(table).run(this.connection).then(() => {
+                    console.log(`[I] Table ${table} was created successfully`);
+                }));
+            }
+        }
+
+        await Promise.all(tablePromises);
 
         // We populate the tables
-        await r.db("mmorpg").table("users").insert([{
-            ...initialServerConfig.newPlayerDetails,
-            username: "admin",
-            password: MMO_Core.security.hashPassword("admin"),
-            permission: 100
-        }]).run(this.connection);
-        console.log("[I] Initial admin account created.");
+        const defaultAdminUser = await db.table("users").filter({ username: 'admin' }).run(this.connection);
+        if ((await defaultAdminUser.toArray()).length === 0) {
+            await db.table("users").insert([{
+                ...initialServerConfig.newPlayerDetails,
+                username: "admin",
+                password: MMO_Core.security.hashPassword("admin"),
+                permission: 100
+            }]).run(this.connection);
+            console.log("[I] Initial admin account created.");
+        }
 
         const mapFolder = path.join(__dirname, "..", "..", "data");
         const mapInfos = JSON.parse(
           await fs.promises.readFile(path.join(mapFolder, "MapInfos.json"), 'utf8')
         ).filter(Boolean); // Removing the `null` element
         for (const mapInfo of mapInfos) {
+            const existingMap = await db.table("maps").get(mapInfo.id).run(this.connection);
+            if (existingMap) continue;
             const mapFileId = String(mapInfo.id).padStart(3, "0");
             const mapData = JSON.parse(
               await fs.promises.readFile(path.join(mapFolder, `Map${mapFileId}.json`), 'utf8')
@@ -128,7 +138,7 @@ class Database {
             const encounterList = mapData.encounterList.map(encounter => ({...encounter, mapId: mapInfo.id}));
             delete mapData.events;
             delete mapData.encounterList;
-            await r.db("mmorpg").table("maps").insert([{
+            await db.table("maps").insert([{
                 ...mapData,
                 id: mapInfo.id,
                 name: mapInfo.name,
@@ -137,19 +147,23 @@ class Database {
             for (const event of events) {
                 event.idInMap = event.id;
                 delete event.id;
-                await r.db("mmorpg").table("events").insert([event]).run(this.connection);
+                await db.table("events").insert([event]).run(this.connection);
             }
             for (const encounter of encounterList) {
-                await r.db("mmorpg").table("encounters").insert([encounter]).run(this.connection);
+                await db.table("encounters").insert([encounter]).run(this.connection);
             }
             console.log(`[I] Created map ${mapInfo.name}...`);
         }
 
-        await r.db("mmorpg").table("config").insert([initialServerConfig]).run(this.connection);
-        console.log("[I] Initial server configuration was created with success.");
+        const existingConfig = await db.table("config")(0);
+        if (!existingConfig) {
+            await db.table("config").insert([initialServerConfig]).run(this.connection);
+            console.log("[I] Initial server configuration was created with success.");
+        }
         console.log("[I] All good! Everything is ready for you 😘");
         console.log("[I] Database initialized with success");
         this.initialized = true;
+        MMO_Core.security.loadTokens();
     }
 
     // Players
