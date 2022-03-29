@@ -43,7 +43,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 
     <div class="box" >
       <img src="images/logo.png"/>
-      
+
       <h2>Server Management</h2>
 
       <iron-form>
@@ -52,13 +52,13 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
           <vaadin-password-field label="Password" name="password" value="" required></vaadin-password-field>
         </form>
       </iron-form>
-        
+
       <vaadin-button on-click="_signIn">Sign In</vaadin-button>
     </div>
 
 
     <!-- Paper dialog in case of failure !-->
-    
+
     <paper-dialog modal>
       <h1 style="margin-bottom: 12px;">Oops...</h1>
       <span>{{_errorMessage}}</span>
@@ -79,8 +79,6 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 
         if(form.password.length <= 0 || form.username.length <= 0) return this._displayError("Please fill correctly the sign in form in order to proceed.");
 
-        form.password = form.password.toLowerCase();
-
         ironAjax.method       = "POST";
         ironAjax.url          = window.projectUrl + "/api/admin/auth/signin";
         ironAjax.contentType  = "application/json";
@@ -91,7 +89,7 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
 
       _handleAjaxResponse(event) {
         var _response = event.detail.response;
-        
+
         this.dispatchEvent(new CustomEvent('sign-in', {detail: _response, bubbles: true, composed: true}));
       }
 

@@ -16,7 +16,7 @@ exports.initialize = function(socketConnection) {
 
     // We load all the modules in the socket server
     exports.loadModules("", false).then(() => {
-        console.log(`[I] Socket.IO server started on port ${MMO_Core.database.SERVER_CONFIG.port}...`);
+        console.log(`[I] Socket.IO server started on port ${MMO_Core.database.config.port}...`);
     }).catch((e) => {
         console.log(e);
     });

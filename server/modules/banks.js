@@ -1,4 +1,8 @@
 /* global MMO_Core */
+// ---------------------------------------
+// ---------- EXPOSED FUNCTIONS
+// ---------------------------------------
+
 exports.initialize = function() {
     const io = MMO_Core.socket.socketConnection;
 
@@ -9,7 +13,7 @@ exports.initialize = function() {
     io.on("connect", function(player) {
         // When a player open a bank
         player.on("bank_open", async bankName => {
-            const bank = await exports.getBank(bankName);
+            const bank = await MMO_Core.database.getBank(bankName);
             const payload = (bank.type === "global") ? bank.content : bank.content[player.playerData.username] || {
                 items: {},
                 weapons: {},
@@ -25,7 +29,7 @@ exports.initialize = function() {
 
         // When a player deposit something in the bank
         player.on("bank_deposit", async details => {
-            const bank = await exports.getBankById(details.bankId);
+            const bank = await MMO_Core.database.getBankById(details.bankId);
             const payload = (bank.type === "global") ? bank.content : bank.content[player.playerData.username] || {
                 items: {},
                 weapons: {},
@@ -44,16 +48,14 @@ exports.initialize = function() {
 
                 player.playerData.stats.gold -= details.gold;
 
-                MMO_Core.database.savePlayer({
+                await MMO_Core.database.savePlayer({
                     username: player.playerData.username,
                     stats: player.playerData.stats
-                }, (e) => {
-                    MMO_Core.socket.modules.player.subs.player.refreshData(player);
-
-                    payload.gold += details.gold;
-
-                    exports.saveBank(bank, payload, player);
                 });
+
+                MMO_Core.socket.modules.player.subs.player.refreshData(player);
+                payload.gold += details.gold;
+                exports.saveBank(bank, payload, player);
 
                 // If we are putting an item
             } else {
@@ -72,27 +74,26 @@ exports.initialize = function() {
                     player.playerData.stats[details.itemType][details.itemId] -= details.amount;
                 }
 
-                MMO_Core.database.savePlayer({
+                await MMO_Core.database.savePlayer({
                     username: player.playerData.username,
                     stats: player.playerData.stats
-                }, (e) => {
-                    MMO_Core.socket.modules.player.subs.player.refreshData(player);
-
-                    // Taking care of the bank
-                    if (payload[details.itemType][details.itemId]) {
-                        payload[details.itemType][details.itemId] += details.amount;
-                    } else {
-                        payload[details.itemType][details.itemId] = details.amount;
-                    }
-
-                    exports.saveBank(bank, payload, player);
                 });
+                MMO_Core.socket.modules.player.subs.player.refreshData(player);
+
+                // Taking care of the bank
+                if (payload[details.itemType][details.itemId]) {
+                    payload[details.itemType][details.itemId] += details.amount;
+                } else {
+                    payload[details.itemType][details.itemId] = details.amount;
+                }
+
+                exports.saveBank(bank, payload, player);
             }
         });
 
         // When a player withdraw from the bank
         player.on("bank_withdraw", async details => {
-            const bank = await exports.getBankById(details.bankId);
+            const bank = await MMO_Core.database.getBankById(details.bankId);
             const payload = (bank.type === "global") ? bank.content : bank.content[player.playerData.username] || {
                 items: {},
                 weapons: {},
@@ -111,15 +112,14 @@ exports.initialize = function() {
 
                 player.playerData.stats.gold += details.gold;
 
-                MMO_Core.database.savePlayer({
+                await MMO_Core.database.savePlayer({
                     username: player.playerData.username,
                     stats: player.playerData.stats
-                }, (e) => {
-                    MMO_Core.socket.modules.player.subs.player.refreshData(player);
-                    payload.gold -= details.gold;
-
-                    exports.saveBank(bank, payload, player);
                 });
+                MMO_Core.socket.modules.player.subs.player.refreshData(player);
+                payload.gold -= details.gold;
+
+                exports.saveBank(bank, payload, player);
 
                 // If we are withdrawing an item
             } else {
@@ -138,64 +138,39 @@ exports.initialize = function() {
                     player.playerData.stats[details.itemType][details.itemId] += details.amount;
                 }
 
-                MMO_Core.database.savePlayer({
+                await MMO_Core.database.savePlayer({
                     username: player.playerData.username,
                     stats: player.playerData.stats
-                }, (e) => {
-                    MMO_Core.socket.modules.player.subs.player.refreshData(player);
-
-                    // Taking care of the bank
-                    if ((payload[details.itemType][details.itemId] - details.amount) <= 0) {
-                        payload[details.itemType][details.itemId] = 0;
-                    } else {
-                        payload[details.itemType][details.itemId] -= details.amount;
-                    }
-
-                    exports.saveBank(bank, payload, player);
                 });
+                MMO_Core.socket.modules.player.subs.player.refreshData(player);
+
+                // Taking care of the bank
+                if ((payload[details.itemType][details.itemId] - details.amount) <= 0) {
+                    payload[details.itemType][details.itemId] = 0;
+                } else {
+                    payload[details.itemType][details.itemId] -= details.amount;
+                }
+
+                exports.saveBank(bank, payload, player);
             }
         });
     });
+};
 
-    // ---------------------------------------
-    // ---------- EXPOSED FUNCTIONS
-    // ---------------------------------------
+exports.saveBank = async (bank, payload, player) => {
+    if (bank.type === "global") {
+        bank.content = payload;
+    } else {
+        bank.content[player.playerData.username] = payload;
+    }
 
-    exports.getBank = async bankName => {
-        return new Promise(resolve => {
-            MMO_Core.database.getBank(bankName, (bank) => {
-                resolve(bank);
-            });
-        });
-    };
+    MMO_Core.database.saveBank(bank, (e) => {
+        bank.content = payload;
 
-    exports.getBankById = async bankId => {
-        return new Promise(resolve => {
-            MMO_Core.database.getBankById(bankId, (bank) => {
-                resolve(bank);
-            });
-        });
-    };
-
-    exports.saveBank = async (bank, payload, player) => {
         if (bank.type === "global") {
-            bank.content = payload;
+            MMO_Core.socket.emitToAll("bank_refresh", bank);
         } else {
-            bank.content[player.playerData.username] = payload;
+            player.emit("bank_refresh", bank);
         }
-
-        MMO_Core.database.saveBank(bank, (e) => {
-            bank.content = payload;
-
-            if (bank.type === "global") {
-                MMO_Core.socket.emitToAll("bank_refresh", bank);
-            } else {
-                player.emit("bank_refresh", bank);
-            }
-        });
-    };
-
-    // ---------------------------------------
-    // ---------- PRIVATE FUNCTIONS
-    // ---------------------------------------
+    });
 };

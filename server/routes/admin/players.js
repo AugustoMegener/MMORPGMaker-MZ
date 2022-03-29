@@ -6,36 +6,29 @@ const router = require("express").Router();
  *****************************/
 
 // Send back the configurations of the server
-router.get("/:playerId?", isTokenValid, function(req, res) {
+router.get("/:playerId?", isTokenValid, async (req, res) => {
     if (!req.params.playerId) {
-        MMO_Core.database.getPlayers(players => {
-            res.status(200).send(players);
-        });
-    } else {
-        MMO_Core.database.findUserById(req.params.playerId, player => {
-            res.status(200).send(player);
-        });
+        return res.status(200).json(await MMO_Core.database.getPlayers());
     }
+    res.status(200).json(await MMO_Core.database.findUserById(req.params.playerId));
 });
 
-router.patch("/", isTokenValid, (req, res) => {
+router.patch("/", isTokenValid, async (req, res) => {
     if (!req.body.username) {
         return;
     }
 
-    MMO_Core.database.savePlayerById(req.body, () => {
-        res.status(200).send(true);
-    });
+    await MMO_Core.database.savePlayer(req.body);
+    res.status(200).json({ success: true });
 });
 
-router.delete("/:playerId", isTokenValid, (req, res) => {
+router.delete("/:playerId", isTokenValid, async (req, res) => {
     if (!req.params.playerId) {
         return;
     }
 
-    MMO_Core.database.deleteUser(req.params.playerId, () => {
-        res.status(200).send(true);
-    });
+    await MMO_Core.database.deleteUser(req.params.playerId);
+    res.status(200).json({ success: true });
 });
 
 /*****************************

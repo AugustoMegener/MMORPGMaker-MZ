@@ -1,7 +1,7 @@
 /* global MMO_Core */
 exports.initialize = function() {
     const io = MMO_Core.socket.socketConnection;
-    const world = MMO_Core["gameworld"];
+    const world = MMO_Core.gameworld;
 
     io.on("connect", function(client) {
         // Handle players joining a map
@@ -11,7 +11,7 @@ exports.initialize = function() {
             }
 
             if (client.lastMap !== undefined && client.lastMap !== "map-" + playerData.mapId) {
-                if (MMO_Core.database.SERVER_CONFIG.offlineMaps[client.lastMap] === undefined) {
+                if (MMO_Core.database.config.offlineMaps[client.lastMap] === undefined) {
                     client.broadcast.to(client.lastMap).emit("map_exited", client.id);
                 }
                 client.leave(client.lastMap);
@@ -29,20 +29,20 @@ exports.initialize = function() {
             client.playerData.mapId = parseInt(playerData.mapId);
 
             // Update global switches
-            for (const switchKey in MMO_Core.database.SERVER_CONFIG.globalSwitches) {
-                client.emit("player_update_switch", { switchId: switchKey, value: MMO_Core.database.SERVER_CONFIG.globalSwitches[switchKey] });
+            for (const switchKey in MMO_Core.database.config.globalSwitches) {
+                client.emit("player_update_switch", { switchId: switchKey, value: MMO_Core.database.config.globalSwitches[switchKey] });
             }
 
             // Update global variables
-            for (const varKey in MMO_Core.database.SERVER_CONFIG.globalVariables) {
-                client.emit("player_update_variable", { variableId: varKey, value: MMO_Core.database.SERVER_CONFIG.globalVariables[varKey] });
+            for (const varKey in MMO_Core.database.config.globalVariables) {
+                client.emit("player_update_variable", { variableId: varKey, value: MMO_Core.database.config.globalVariables[varKey] });
             }
 
             client.join("map-" + playerData.mapId);
             client.lastMap = "map-" + playerData.mapId;
             world.playerJoinInstance(client.playerData.id, parseInt(client.playerData.mapId));
 
-            if (MMO_Core.database.SERVER_CONFIG.offlineMaps[client.lastMap] === undefined) {
+            if (MMO_Core.database.config.offlineMaps[client.lastMap] === undefined) {
                 client.broadcast.to("map-" + playerData.mapId).emit("map_joined", { id: client.id, playerData: playerData });
                 client.broadcast.to("map-" + playerData.mapId).emit("refresh_players_position", client.id);
             }
@@ -59,7 +59,7 @@ exports.initialize = function() {
                 return;
             }
 
-            if (MMO_Core.database.SERVER_CONFIG.offlineMaps[client.lastMap] !== undefined) {
+            if (MMO_Core.database.config.offlineMaps[client.lastMap] !== undefined) {
                 return false;
             }
 

@@ -2,7 +2,7 @@
 exports.initialize = function() {
     const io = MMO_Core.socket.socketConnection;
 
-    io.on("connect", function(client) {
+    io.on("connect", async (client) => {
         client.on("player_update_switches", function(payload) {
             if (client.playerData === undefined) {
                 return;
@@ -11,25 +11,25 @@ exports.initialize = function() {
             client.playerData.switches = payload;
         });
 
-        client.on("player_global_switch_check", function(payload) {
+        client.on("player_global_switch_check", async (payload) => {
             if (client.playerData === undefined) {
                 return;
             }
 
             // If the player is in a party
             if (client.isInParty) {
-                if (MMO_Core.database.SERVER_CONFIG.partySwitches[payload.switchId] !== undefined) {
+                if (MMO_Core.database.config.partySwitches[payload.switchId] !== undefined) {
                     io.in(client.isInParty).emit("player_update_switch", payload);
                     return;
                 }
             }
 
-            if (MMO_Core.database.SERVER_CONFIG.globalSwitches[payload.switchId] === undefined) {
+            if (MMO_Core.database.config.globalSwitches[payload.switchId] === undefined) {
                 return;
             }
 
-            MMO_Core.database.SERVER_CONFIG.globalSwitches[payload.switchId] = payload.value;
-            MMO_Core.database.saveConfig();
+            MMO_Core.database.config.globalSwitches[payload.switchId] = payload.value;
+            await MMO_Core.database.saveConfig();
 
             client.broadcast.emit("player_update_switch", payload);
         });
@@ -42,31 +42,30 @@ exports.initialize = function() {
             client.playerData.variables = payload;
         });
 
-        client.on("player_global_variables_check", function(payload) {
+        client.on("player_global_variables_check", async (payload) => {
             if (client.playerData === undefined) {
                 return;
             }
 
-            if (MMO_Core.database.SERVER_CONFIG.globalVariables[payload.variableId] === undefined) {
+            if (MMO_Core.database.config.globalVariables[payload.variableId] === undefined) {
                 return;
             }
 
-            MMO_Core.database.SERVER_CONFIG.globalVariables[payload.variableId] = payload.value;
-            MMO_Core.database.saveConfig();
+            MMO_Core.database.config.globalVariables[payload.variableId] = payload.value;
+            await MMO_Core.database.saveConfig();
 
             client.broadcast.emit("player_update_variable", payload);
         });
 
-        client.on("player_update_stats", async function(payload) {
+        client.on("player_update_stats", async (payload) => {
             if (client.playerData === undefined) {
                 return;
             }
 
             client.playerData.stats = payload;
 
-            MMO_Core.database.savePlayer(client.playerData, () => {
-                exports.refreshData(client);
-            });
+            await MMO_Core.database.savePlayer(client.playerData);
+            await exports.refreshData(client);
         });
 
         client.on("player_update_skin", function(payload) {
@@ -89,7 +88,7 @@ exports.initialize = function() {
             }
         });
 
-        client.on("player_update_busy", function(payload) {
+        client.on("player_update_busy", async (payload) => {
             if (client.playerData === undefined) {
                 return;
             }
@@ -99,17 +98,16 @@ exports.initialize = function() {
 
             client.playerData.isBusy = payload;
 
-            MMO_Core.database.savePlayer({ username: client.playerData.username, isBusy: client.playerData.isBusy }, (e) => {
-                client.broadcast.to("map-" + client.playerData.mapId).emit("refresh_players_on_map", { playerId: client.id, playerData: client.playerData });
-            });
+            await MMO_Core.database.savePlayer({ username: client.playerData.username, isBusy: client.playerData.isBusy });
+            client.broadcast.to("map-" + client.playerData.mapId).emit("refresh_players_on_map", { playerId: client.id, playerData: client.playerData });
         });
 
-        client.on("player_moving", function(payload) {
+        client.on("player_moving", async (payload) => {
             if (client.playerData === undefined) {
                 return;
             }
 
-            if (MMO_Core.database.SERVER_CONFIG.offlineMaps[client.lastMap] !== undefined) {
+            if (MMO_Core.database.config.offlineMaps[client.lastMap] !== undefined) {
                 return false;
             }
 
@@ -119,7 +117,7 @@ exports.initialize = function() {
             client.playerData.y = payload.y;
             client.playerData.mapId = payload.mapId;
 
-            MMO_Core["gameworld"].mutateNode(MMO_Core["gameworld"].getNodeBy('playerId', client.playerData.id), {
+            MMO_Core.gameworld.mutateNode(MMO_Core.gameworld.getNodeBy("playerId", client.playerData.id), {
                 x: client.playerData.x,
                 y: client.playerData.y,
                 mapId: client.playerData.mapId
@@ -133,7 +131,7 @@ exports.initialize = function() {
                 return;
             }
 
-            client.emit("player_respawn", { mapId: MMO_Core.database.SERVER_CONFIG.newPlayerDetails.mapId, x: MMO_Core.database.SERVER_CONFIG.newPlayerDetails.x, y: MMO_Core.database.SERVER_CONFIG.newPlayerDetails.y });
+            client.emit("player_respawn", { mapId: MMO_Core.database.config.newPlayerDetails.mapId, x: MMO_Core.database.config.newPlayerDetails.x, y: MMO_Core.database.config.newPlayerDetails.y });
         });
     });
 
@@ -164,17 +162,16 @@ exports.initialize = function() {
         return io.sockets.connected[socketId];
     };
 
-    exports.refreshData = function(player) {
-        MMO_Core.database.findUserById(player.playerData.id, (playerData) => {
-            delete playerData.password; // We delete the password from the result sent back
+    exports.refreshData = async (player) => {
+        const playerData = await MMO_Core.database.findUserById(player.playerData.id);
+        delete player.password; // We delete the password from the result sent back
 
-            player.emit("refresh_player_data", playerData, () => {
-                if (!player.isInParty) {
-                    return;
-                }
+        player.emit("refresh_player_data", playerData, () => {
+            if (!player.isInParty) {
+                return;
+            }
 
-                MMO_Core.socket.modules.player.subs.party.refreshPartyData(player.isInParty);
-            });
+            MMO_Core.socket.modules.player.subs.party.refreshPartyData(player.isInParty);
         });
     };
 };

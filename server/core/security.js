@@ -1,4 +1,3 @@
-/* global onConnect */
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
@@ -7,10 +6,8 @@ let activeTokens = {}; // Allow to have a better control on what are the "active
 
 // Secret variables 👀
 const securityDetails = {
-    // eslint-disable-next-line no-irregular-whitespace
-    specialSalt: process.env.specialSalt || "SuperSecretKey",
-    // eslint-disable-next-line no-irregular-whitespace
-    tokenPassphrase: process.env.tokenPassphrase || "keyboard cat"
+    specialSalt: process.env.specialSalt || "SuperSecretKey",
+    tokenPassphrase: process.env.tokenPassphrase || "keyboard cat"
 };
 
 // Handle the debugging verbose
@@ -35,8 +32,7 @@ isTokenValid = function(req, res, next) {
     // verify the token & decode it
     jwt.verify(token, securityDetails.tokenPassphrase, function(err, decoded) {
         let tokenExist = false; // Default value to false for the condition
-        // eslint-disable-next-line no-irregular-whitespace
-        if (err || activeTokens[decoded.email] === undefined) {
+        if (err || activeTokens[decoded.email] === undefined) {
             return res.status(403).send({ message: "Failed to authenticate token." });
         }
 
@@ -88,29 +84,25 @@ exports.generateToken = function(requestDetails, userDetails, callback) {
 };
 
 exports.loadTokens = () => {
-    onConnect(function(_err, conn) {
-        fs.readFile("./tokens.json", (err, data) => {
-            if (err) {
-                // eslint-disable-next-line no-return-assign
-                return activeTokens = {};
-            }
-            activeTokens = JSON.parse(data);
-            console.log("[I] " + Object.keys(JSON.parse(data)).length + " active JWT loaded from local file!");
-        });
+    fs.readFile("./tokens.json", (err, data) => {
+        if (err) {
+            // eslint-disable-next-line no-return-assign
+            return activeTokens = {};
+        }
+        activeTokens = JSON.parse(data);
+        console.log("[I] " + Object.keys(JSON.parse(data)).length + " active JWT loaded from local file!");
     });
 };
 
 exports.saveTokens = (callback) => {
-    onConnect((_err, conn) => {
-        fs.writeFile("./tokens.json", JSON.stringify(activeTokens), (err) => {
-            if (err) {
-                return console.log(err);
-            }
+    fs.writeFile("./tokens.json", JSON.stringify(activeTokens), (err) => {
+        if (err) {
+            return console.log(err);
+        }
 
-            console.log("[I] Active JWT saved in local file.");
-            // eslint-disable-next-line standard/no-callback-literal
-            return callback(true);
-        });
+        console.log("[I] Active JWT saved in local file.");
+        // eslint-disable-next-line standard/no-callback-literal
+        return callback(true);
     });
 };
 
@@ -141,14 +133,20 @@ exports.generatePassword = function(length) {
     return password;
 };
 
-exports.createLog = function(message,type) {
+exports.createLog = function(message, type) {
     if (exports.debugVerbose <= 1 || !message) {
         return;
     }
 
-    if (type === 'error') console.error(message);
-    else if (type === 'warn') console.warn(message);
-    else console.log(message);
+    if (type === "error") {
+        console.error(message);
+    }
+    else if (type === "warn") {
+        console.warn(message);
+    }
+    else {
+        console.log(message);
+    }
 
     if (exports.debugVerbose >= 3) {
         const fullDate = new Date();

@@ -43,16 +43,16 @@ world.getNpcInstance  = (uniqueId) => world.getInstanceByMapId( world.getNpcMapI
 world.getNpcByUniqueId = (uniqueId) => world.getNpcInstance(uniqueId) && world.getNpcInstance(uniqueId).connectedNpcs.find(npc => npc && npc.uniqueId && npc.uniqueId === uniqueId);
 world.getConnectedNpcs = (mapId) => world.getInstanceByMapId(mapId) && world.getInstanceByMapId(mapId).connectedNpcs;
 
-world.initialize = () => {
+world.initialize = async () => {
   console.log("######################################");
   console.log('[WORLD] GAME WORLD by Axel Fiolle')
-  world.fetchTilesets(); // Load collision informations
-  world.fetchMaps(); // Load MMO_Core.gamedata maps
+  await world.fetchTilesets(); // Load collision informations
+  await world.fetchMaps(); // Load MMO_Core.gamedata maps
   console.log('[WORLD] GAME WORLD is ready !');
   console.log("######################################");
 }
 
-world.fetchTilesets = () => {
+world.fetchTilesets = async () => {
   world.tileSets = MMO_Core["gamedata"].data['Tilesets'] || [];
   console.log('[WORLD] Loaded Tilesets')
 }
@@ -127,26 +127,35 @@ world.mutateNode = (node, props) => {
 
 /*************************************************************************************** Maps Operations */
 
-world.fetchMaps = () => {
+world.fetchMaps = async () => {
   console.log('[WORLD] Loading world maps');
   world.gameMaps = [];
-  // use the file name as key in the loop, keeping only filename starting with "Map" :
-  for (let fileName of Object.keys(MMO_Core["gamedata"].data).filter(name => name.startsWith("Map") && name !== "MapInfos")) {
+  // Load maps from the database
+  const maps = await MMO_Core.database.getMaps();
+  for (const map of maps) {
     // Format map from game file and and to world
-    const _gameMap = world.getMapFromGameData(MMO_Core["gamedata"].data[fileName],fileName);
+    const {
+      events,
+      encounterList,
+    } = await MMO_Core.database.getMap(map.id);
+    const _gameMap = world.getMapFromGameData({
+      ...map,
+      events,
+      encounterList
+    });
     const _isSummon = _gameMap.isSummonMap;
     const _isSync = world.isMapInstanceable(_gameMap);
-    console.log(`[WORLD] ... ${fileName} ${_isSummon ? '<Summon>' : ''}${world.isMapInstanceable(_gameMap) ? '<Sync>' : ''}`);
-    world.gameMaps.push( _gameMap ); 
+    console.log(`[WORLD] ... ${map.id} ${_isSummon ? '<Summon>' : ''}${world.isMapInstanceable(_gameMap) ? '<Sync>' : ''}`);
+    world.gameMaps.push( _gameMap );
     if (_isSync) world.instanceableMaps.push( _gameMap );
   }
 }
 
-world.getMapFromGameData = (gameMap, fileName) => {
+world.getMapFromGameData = (gameMap) => {
   // a GameMap is a raw map file + some additional useful datas
   return Object.assign(gameMap, {
-    mapId: world.getMapIdByFileName(fileName),
-    fileName,
+    mapId: gameMap.id,
+    fileName: `Map${gameMap.id}.json`,
     isSummonMap: world.isSummonMap(gameMap),
     nodeType: 'map',
   });
@@ -326,10 +335,10 @@ world.spawnNpc = (npcSummonId, coords, pageIndex, initiator) => {
   world.spawnedUniqueIds.push( _generatedNpc.uniqueId );
   const _spawnedIndex = world.spawnedUniqueIds.indexOf(_generatedNpc.uniqueId);
   world.getConnectedNpcs(coords.mapId).push( _generatedNpc );
-  
+
   world.getNpcByUniqueId(_generatedNpc.uniqueId).x = coords.x || 1;
   world.getNpcByUniqueId(_generatedNpc.uniqueId).y = coords.y || 1;
-  
+
   MMO_Core["security"].createLog(`[WORLD] Spawned NPC ${_generatedNpc.uniqueId} (${coords.x};${coords.y}) by "${_generatedNpc.initiator}"`)
   MMO_Core["socket"].emitToAll("npcSpawn", world.getNpcByUniqueId(_generatedNpc.uniqueId));
 
@@ -413,7 +422,7 @@ world.npcMoveRandom = (npc) => {
 /*************************************************************************************** Instance Life Cycle Operations */
 
 world.handleInstanceAction = (action,instance,currentTime) => {
-  // This function will interpret/mock a game script then emit 
+  // This function will interpret/mock a game script then emit
   // an event to replicate it on every concerned player
   if (!action || !instance || !currentTime) return;
   return;
@@ -438,11 +447,11 @@ world.handleNpcTurn = (npc,_currentTime,_cooldown) => {
 
   const currentTime = _currentTime || new Date()
       , cooldown = _cooldown || Infinity;
-  
+
   // read NPCs infos (speed, rate, etc, ...)
   const delayedActionTime = currentTime.getTime() - npc.lastActionTime.getTime();
   const delayedMoveTime = currentTime.getTime() - npc.lastMoveTime.getTime();
-  
+
   // make NPCs behavior
   let canMoveThisTurn = delayedMoveTime > cooldown;
 
@@ -487,7 +496,7 @@ world.startInstanceLifecycle = (mapId) => {
           clearInterval(tick); // Will suspend instance (not kill)
           world.getInstanceByMapId(mapId).paused = true; // Flag paused
         }
-      }, world.getInstanceByMapId(mapId).pauseAfter); 
+      }, world.getInstanceByMapId(mapId).pauseAfter);
     }
   }, interval);
 }
@@ -512,7 +521,7 @@ world.provideMapTiles = (map) => {
 
     if (widthIndex + 1 < _width) { // if still on current line
       widthIndex++; // next cell
-    } else { 
+    } else {
       heightIndex++; // next line
       widthIndex = 0; // first cell
       // (if next): layer first row, (else): next row

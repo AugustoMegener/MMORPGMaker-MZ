@@ -6,27 +6,22 @@ const router = require("express").Router();
  *****************************/
 
 // Send back the configurations of the server
-router.get("/", isTokenValid, function(req, res) {
-    MMO_Core.database.getBanks((banks) => {
-        res.status(200).send(banks);
-    });
+router.get("/", isTokenValid, async (req, res) => {
+    res.status(200).json(await MMO_Core.database.getBanks());
 });
 
-router.post("/", isTokenValid, (req, res) => {
-    console.dir(req.body);
-    MMO_Core.database.createBank(req.body, () => {
-        res.status(200).send();
-    });
+router.post("/", isTokenValid, async (req, res) => {
+    await MMO_Core.database.createBank(req.body);
+    res.status(200).send();
 });
 
-router.delete("/:id", isTokenValid, function(req, res) {
+router.delete("/:id", isTokenValid, async (req, res) => {
     if (!req.params.id) {
         return;
     }
 
-    MMO_Core.database.deleteBank(req.params.id, () => {
-        res.status(200).send();
-    });
+    await MMO_Core.database.deleteBank(req.params.id);
+    res.status(200).send();
 });
 
 /*****************************

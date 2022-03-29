@@ -1,419 +1,305 @@
-/* global MMO_Core, onConnect */
+/* global MMO_Core */
 const r = require("rethinkdb");
-const async = require("async");
+const fs = require("fs");
+const path = require("path");
 
-/*****************************
-      PUBLIC FUNCTIONS
-*****************************/
-
-exports.SERVER_CONFIG = {};
-
-exports.initialize = function(callback) {
-    // In case we need more tables in the future
-    const tables = [
-        "users",
-        "banks",
-        "config"
-    ];
-
-    // We check if the database exist
-    onConnect(function(_err, conn) {
-    // IMPORTANT : DO NOT TOUCH THIS
-        const initialServerConfig = {
-            port: 8097,
-            passwordRequired: true,
-            newPlayerDetails: {
-                permission: 0,
-                mapId: 1,
-                skin: {
-                    characterIndex: 0,
-                    characterName: "Actor1",
-                    battlerName: "Actor1_1",
-                    faceName: "Actor1",
-                    faceIndex: 0
-                },
-                x: 5,
-                y: 5
-            },
-            globalSwitches: {
-            },
-            partySwitches: {
-            },
-            globalVariables: {
-            },
-            offlineMaps: {
-            }
-        };
-
-        r.dbList().run(conn, function(_err, results) {
-            // If the database exist, we have nothing to do
-            if (results.indexOf("mmorpg") !== -1) {
-                conn.close(); // We close the connection
-                MMO_Core.security.loadTokens();
-                console.log("[I] Database initialized with success"); // And we abort any additional procedures
-                return callback();
-            }
-
-            console.log("[O] I have not found the database! 😱  Let me fix that for you...");
-            // Else, we create the database and its tables
-            r.dbCreate("mmorpg").run(conn, function(_err, result) {
-                console.log("[I] Database was created with success");
-
-                // We create the tables asynchronously
-                async.each(tables, function(item, callback) {
-                    r.db("mmorpg").tableCreate(item).run(conn, function(_err, result) {
-                        console.log("[I] Table " + item + " was created with success");
-
-                        if (item === "users") {
-                            const user = initialServerConfig.newPlayerDetails;
-                            user.username = "admin";
-                            user.password = MMO_Core.security.hashPassword("admin");
-                            user.permission = 100;
-
-                            r.db("mmorpg").table("users").insert([user]).run(conn, (_err, result) => {
-                                console.log("[I] Initial admin account created.");
-                                return callback();
-                            });
-                        } else if (item === "config") {
-                            r.db("mmorpg").table("config").insert([initialServerConfig]).run(conn, (_err, result) => {
-                                console.log("[I] Initial server configuration was created with success.");
-                                return callback();
-                            });
-                        } else {
-                            return callback();
-                        }
-                    });
-                }, function(_err) {
-                    conn.close(); // We close the connection at the end
-                    console.log("[I] All good! Everything is ready for you 😘");
-                    console.log("[I] Database initialized with success");
-                    return callback(); // Yay
-                });
-            });
-        });
-    });
+const initialServerConfig = {
+    port: parseInt(process.env.HTTP_PORT) || 8097,
+    passwordRequired: process.env.PASSWORD_REQUIRED === "true",
+    newPlayerDetails: {
+        permission: 0,
+        mapId: 1,
+        skin: {
+            characterIndex: 0,
+            characterName: "Actor1",
+            battlerName: "Actor1_1",
+            faceName: "Actor1",
+            faceIndex: 0
+        },
+        x: 5,
+        y: 5
+    },
+    globalSwitches: {
+    },
+    partySwitches: {
+    },
+    globalVariables: {
+    },
+    offlineMaps: {
+    }
 };
 
-exports.getPlayers = function(callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("users")
-            .run(conn)
-            .then(function(cursor) {
-                return cursor.toArray();
-            })
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+class Database {
+    static DB_CONNECTION_TIMEOUT = 1000 * 60 * 5;
 
-exports.findUser = function(userDetails, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("users")
-        // .filter({ username: userDetails["username"] })
-            .filter(function(user) {
-                return user("username").match("(?i)^" + userDetails.username + "$");
-            })
-            .run(conn)
-            .then(function(cursor) {
-                return cursor.toArray();
-            })
-            .then(function(output) {
-                return callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
-
-exports.findUserById = function(userId, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("users")
-            .get(userId)
-            .run(conn)
-            .then(function(output) {
-                return callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
-
-exports.deleteUser = function(userId, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("users")
-            .get(userId)
-            .delete()
-            .run(conn)
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
-
-exports.registerUser = function(userDetails, callback) {
-    const userPayload = exports.SERVER_CONFIG.newPlayerDetails;
-    userPayload.username = userDetails.username;
-    userPayload.permission = 0; // Just making sure.
-    if (exports.SERVER_CONFIG.passwordRequired) {
-        userPayload.password = MMO_Core.security.hashPassword(userDetails.password.toLowerCase());
+    /**
+     * Ideally, we don't want to re-establish a connection each time we need the database
+     * but at the same time, keeping an inactive connection active for hours may not be desirable
+     * depending on the database system.
+     * What we'll do is keep a connection active but close it after <DB_CONNECTION_TIMEOUT> miliseconds of inactivity
+     */
+    constructor() {
+        this.connection = null;
+        this.initialized = false;
+        this.disconnectTimeout = null;
+        this.config = {};
     }
 
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("users")
-            .insert(userPayload)
-            .run(conn)
-            .then(function(output) {
-                return callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    /**
+     * Open the connection if necessary
+     * @return {Promise<void>}
+     */
+    async connect() {
+        if (this.connection !== null) return this.extendTimeout();
+        this.connection = await r.connect({
+            host: process.env.RETHINKDB_HOST ?? "localhost",
+            port: parseInt(process.env.RETHINKDB_PORT) || 28015
+        });
+        this.setDisconnectionTimeout();
+    }
 
-exports.savePlayer = function(playerData, callback) {
-    // We delete what we don't want to be saved (in case it is there)
+    /**
+     * Schedules the closing of the connection
+     */
+    setDisconnectionTimeout() {
+        this.disconnectTimeout = setTimeout(() => {
+            this.connection?.close();
+            this.connection = null;
+            this.disconnectTimeout = null;
+        }, Database.DB_CONNECTION_TIMEOUT);
+    }
 
-    onConnect(function(_err, conn) {
+    /**
+     * Extends the connection's lifetime
+     */
+    extendTimeout() {
+        if (this.disconnectTimeout === null) return;
+        clearTimeout(this.disconnectTimeout);
+        this.setDisconnectionTimeout();
+    }
+
+    /**
+     * Creates the database if necessary
+     *
+     * @return {Promise<void>}
+     */
+    async initialize() {
+        if (this.initialized) return;
+        await this.connect();
+        const dbList = await r.dbList().run(this.connection);
+        if (dbList.includes("mmorpg")) {
+            MMO_Core.security.loadTokens();
+            console.log("[I] Database initialized with success"); // And we abort any additional procedures
+            this.initialized = true;
+            return;
+        }
+        console.log("[O] I have not found the database! 😱  Let me fix that for you...");
+        // Else, we create the database and its tables
+        await r.dbCreate("mmorpg").run(this.connection);
+        this.connection.use("mmorpg");
+        console.log("[I] Database was created with success");
+
+        // We create the tables asynchronously
+        await Promise.all(["users", "maps", "events", "encounters", "banks", "config"]
+          .map((table) => r.db("mmorpg").tableCreate(table).run(this.connection).then(() => {
+            console.log(`[I] Table ${table} was created successfully`);
+          }))
+        );
+
+        // We populate the tables
+        await r.db("mmorpg").table("users").insert([{
+            ...initialServerConfig.newPlayerDetails,
+            username: "admin",
+            password: MMO_Core.security.hashPassword("admin"),
+            permission: 100
+        }]).run(this.connection);
+        console.log("[I] Initial admin account created.");
+
+        const mapFolder = path.join(__dirname, "..", "..", "data");
+        const mapInfos = JSON.parse(
+          await fs.promises.readFile(path.join(mapFolder, "MapInfos.json"), 'utf8')
+        ).filter(Boolean); // Removing the `null` element
+        for (const mapInfo of mapInfos) {
+            const mapFileId = String(mapInfo.id).padStart(3, "0");
+            const mapData = JSON.parse(
+              await fs.promises.readFile(path.join(mapFolder, `Map${mapFileId}.json`), 'utf8')
+            );
+            const events = mapData.events.filter(Boolean).map(event => ({...event, mapId: mapInfo.id}));
+            const encounterList = mapData.encounterList.map(encounter => ({...encounter, mapId: mapInfo.id}));
+            delete mapData.events;
+            delete mapData.encounterList;
+            await r.db("mmorpg").table("maps").insert([{
+                ...mapData,
+                id: mapInfo.id,
+                name: mapInfo.name,
+                parentId: mapInfo.parentId
+            }]).run(this.connection);
+            for (const event of events) {
+                event.idInMap = event.id;
+                delete event.id;
+                await r.db("mmorpg").table("events").insert([event]).run(this.connection);
+            }
+            for (const encounter of encounterList) {
+                await r.db("mmorpg").table("encounters").insert([encounter]).run(this.connection);
+            }
+            console.log(`[I] Created map ${mapInfo.name}...`);
+        }
+
+        await r.db("mmorpg").table("config").insert([initialServerConfig]).run(this.connection);
+        console.log("[I] Initial server configuration was created with success.");
+        console.log("[I] All good! Everything is ready for you 😘");
+        console.log("[I] Database initialized with success");
+        this.initialized = true;
+    }
+
+    // Players
+    async getPlayers() {
+        await this.connect();
+        const players = await r.db("mmorpg").table("users").run(this.connection);
+        return await players.toArray();
+    }
+
+    async findUser(userDetails) {
+        const player = await r.db("mmorpg").table("users")
+          .filter((user) => user("username").match(`(?i)^${userDetails.username}$`))
+          .run(this.connection);
+        return (await player.toArray()).pop();
+    }
+
+    async findUserById(userId) {
+        await this.connect();
+        const player = r.db("mmorpg").table("users").get(userId).run(this.connection);
+        return player;
+    }
+
+    async deleteUser(userId) {
+        await this.connect();
+        await r.db("mmorpg").table("users").get(userId).delete().run(this.connection);
+    }
+
+    async registerUser(userDetails) {
+        const userPayload = {
+            ...initialServerConfig.newPlayerDetails,
+            username: userDetails.username,
+            password: (this.config.passwordRequired && userDetails.password) ?
+              MMO_Core.security.hashPassword(userDetails.password) :
+              undefined
+        };
+
+        await r.db("mmorpg").table("users").insert(userPayload).run(this.connection);
+    }
+
+    async savePlayer(playerData) {
+        await this.connect();
+        const usernamePattern = `(?i)^${playerData.username}$`;
         let request = r.db("mmorpg").table("users")
-            .filter(function(user) {
-                return user("username").match("(?i)^" + playerData.username + "$");
-            })
-            .update(playerData);
+          .filter(function(user) {
+              return user("username").match(usernamePattern);
+          })
+          .update(playerData);
 
         if (playerData.stats) {
             request = request.do(r.db("mmorpg").table("users")
-                .filter(function(user) {
-                    return user("username").match("(?i)^" + playerData.username + "$");
-                })
-                .update({ stats: r.literal(playerData.stats) }));
+              .filter(function(user) {
+                  return user("username").match(usernamePattern);
+              })
+              .update({ stats: r.literal(playerData.stats) }));
         }
 
-        request.run(conn)
-            .then(function(cursor) {
-                return cursor;
-            })
-            .then(function(output) {
-                return callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+        return await request.run(this.connection);
+    }
 
-exports.savePlayerById = function(playerData, callback) {
-    onConnect(function(_err, conn) {
-        let request = r.db("mmorpg").table("users")
-            .get(playerData.id)
-            .update(playerData);
+    // Maps
+    async getMaps() {
+        await this.connect();
+        const maps = await r.db("mmorpg").table("maps").run(this.connection);
+        return await maps.toArray();
+    }
 
-        if (playerData.stats) {
-            request = request.do(r.db("mmorpg").table("users")
-                .filter(function(user) {
-                    return user("username").match("(?i)^" + playerData.username + "$");
-                })
-                .update({ stats: r.literal(playerData.stats) }));
-        }
+    async getMap(id, returnFullObject = false) {
+        await this.connect();
+        const events = await r.db("mmorpg").table("events").filter({mapId: id}).run(this.connection);
+        const encounterList = await r.db("mmorpg").table("encounters").filter({mapId: id}).run(this.connection);
+        const map = returnFullObject ?
+          await r.db("mmorpg").table("maps").get(id).run(this.connection) :
+          {};
+        return {
+            ...map,
+            events: await events.toArray().map(event => {
+                event.id = event.idInMap;
+                delete event.idInMap;
+                return event;
+            }),
+            encounterList: await encounterList.toArray()
+        };
+    }
+    // Banks
+    async getBanks() {
+        await this.connect();
+        const banks = r.db("mmorpg").table("banks").run(this.connection);
+        return await banks.toArray();
+    }
 
-        request.run(conn)
-            .then(function(cursor) {
-                return cursor;
-            })
-            .then(function(output) {
-                return callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    async getBank(name) {
+        await this.connect();
+        return await r.db("mmorpg").table("banks").filter({name}).run(this.connection);
+    }
 
-/// ////////////// BANKS
+    async getBankById(id) {
+        await this.connect();
+        return await r.db("mmorpg").table("banks").get(id).run(this.connection);
+    }
 
-exports.getBanks = (callback) => {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .run(conn)
-            .then(function(cursor) {
-                return cursor.toArray();
-            })
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    async saveBank(bank) {
+        await this.connect();
+        return await r.db("mmorpg").table("banks")
+          .get(bank.id)
+          .update(bank)
+          .run(this.connection);
+    }
 
-exports.getBank = (bankName, callback) => {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .filter({ name: bankName })
-            .run(conn)
-            .then(function(cursor) {
-                return cursor.toArray();
-            })
-            .then(function(output) {
-                callback(output[0]);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    async createBank(payload) {
+        const content = (payload.type === "global") ? { items: {}, weapons: {}, armors: {}, gold: 0 } : {};
+        const template = {
+            name: payload.name,
+            type: payload.type,
+            content: content
+        };
+        await this.connect();
+        return await r.db("mmorpg").table("banks")
+          .insert(template)
+          .run(this.connection);
+    }
 
-exports.getBankById = function(bankId, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .get(bankId)
-            .run(conn)
-            .then(function(cursor) {
-                return cursor;
-            })
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    async deleteBank(id) {
+        await this.connect();
+        return await r.db("mmorpg").table("banks")
+          .get(id)
+          .delete()
+          .run(this.connection);
+    }
 
-exports.saveBank = function(bank, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .get(bank.id)
-            .update(bank)
-            .run(conn)
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    // Config
+    async reloadConfig() {
+        await this.connect();
+        this.config = await r.db("mmorpg").table("config")(0).run(this.connection);
+    }
 
-exports.createBank = function(payload, callback) {
-    const content = (payload.type === "global") ? { items: {}, weapons: {}, armors: {}, gold: 0 } : {};
-    const template = {
-        name: payload.name,
-        type: payload.type,
-        content: content
-    };
+    async changeConfig(type, payload) {
+        await this.connect();
+        await r.db("mmorpg").table("config")(0).update({[type]: r.literal(payload)}).run(this.connection);
+        await this.reloadConfig()
+    }
 
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .insert(template)
-            .run(conn)
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+    async saveConfig() {
+        await this.connect();
+        await r.db("mmorpg").table("config")(0)
+          .update(this.config)
+          .run(this.connection);
+        console.log("[I] Server configuration changes saved.");
+    }
+}
 
-exports.deleteBank = function(bankId, callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("banks")
-            .get(bankId)
-            .delete()
-            .run(conn)
-            .then(function(output) {
-                callback(output);
-            })
-            .finally(function() {
-                conn.close();
-            });
-    });
-};
+const database = new Database();
 
-/// ////////////// SERVER
-
-exports.reloadConfig = function(callback) {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("config")(0).run(conn)
-            .then(function(cursor) {
-                return cursor;
-            })
-            .then(function(output) {
-                exports.SERVER_CONFIG = output;
-                callback();
-            })
-            .finally(() => {
-                conn.close();
-            });
-    });
-};
-
-exports.changeConfig = function(type, payload, callback) {
-    onConnect(function(_err, conn) {
-        let query = r.db("mmorpg").table("config")(0);
-
-        if (type === "globalSwitches") {
-            query = query.update({ globalSwitches: r.literal(payload) });
-        } else if (type === "partySwitches") {
-            query = query.update({ partySwitches: r.literal(payload) });
-        } else if (type === "offlineMaps") {
-            query = query.update({ offlineMaps: r.literal(payload) });
-        } else if (type === "globalVariables") {
-            query = query.update({ globalVariables: r.literal(payload) });
-        } else if (type === "newPlayerDetails") {
-            query = query.update({ newPlayerDetails: r.literal(payload) });
-        }
-
-        query.run(conn)
-            .then(function(cursor) {
-                return cursor;
-            })
-            .then(function(output) {
-                exports.reloadConfig(() => {
-                    console.log("[I] Server configuration changes saved.");
-                });
-                callback();
-            })
-            .finally(() => {
-                conn.close();
-            });
-    });
-};
-
-exports.saveConfig = function() {
-    onConnect(function(_err, conn) {
-        r.db("mmorpg").table("config")(0)
-            .update(exports.SERVER_CONFIG)
-            .run(conn)
-            .then(() => {
-                console.log("[I] Server configuration changes saved.");
-            })
-            .finally(() => {
-                conn.close();
-            });
-    });
-};
-
-// eslint-disable-next-line no-global-assign
-onConnect = function(callback) {
-    r.connect({
-        host: process.env.RETHINKDB_HOST ?? "localhost",
-        port: parseInt(process.env.RETHINKDB_PORT) || 28015
-    }, function(err, connection) {
-        if (err) {
-            throw err;
-        }
-        callback(err, connection);
-    });
-};
+module.exports = database;

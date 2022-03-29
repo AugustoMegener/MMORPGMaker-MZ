@@ -5,62 +5,70 @@ exports.initialize = function() {
     io.on("connect", function(client) {
         // Handle in-game user login and registration
         // Expect : data : {username, password (optional)}
-        client.on("login", (data) => {
-
-            if(data["username"] === undefined) return loginError(client, "Missing username");
-            if(MMO_Core["database"].SERVER_CONFIG["passwordRequired"] && data["password"] === undefined) return loginError(client, "Missing password");        
-      
-            MMO_Core["database"].findUser(data, async (output) => {
-              // If user exist
-              if(output[0] !== undefined) {
-                // If passwordRequired is activated then we check for password
-                if(MMO_Core["database"].SERVER_CONFIG["passwordRequired"]) {
-                  if(MMO_Core["security"].hashPassword(data["password"].toLowerCase()) !== output[0]["password"].toLowerCase()) return loginError(client, "Bad credentials"); // NEVER specify if password or username is wrong !
-                }
-      
-                // let existingPlayer = await MMO_Core["socket"].modules["player"].subs["player"].getPlayers();
-                let existingPlayer = await MMO_Core["socket"].modules["player"].subs["player"].getPlayer(data["username"]);
-                if(existingPlayer != null)  return loginError(client, "Player is already connected."); 
-      
-                return loginSuccess(client, output[0]);
-              }
-      
-              // If user doesn't exist
-              return loginError(client, "Bad Credentials");
-            })
-          });
-
-          client.on("register", (data) => {
-            // username validation
-            function isValidUsername(string) {
-              return /^(?=[a-zA-Z0-9\s]{4,25}$)(?=[a-zA-Z0-9\s])(?:([\w\s*?])\1?(?!\1))+$/.test(string);
+        client.on("login", async (data) => {
+            if (data.username === undefined) {
+                return loginError(client, "Missing username");
             }
-            if(data["username"] === undefined) return loginError(client, "Missing username");
-            if(data["username"].includes(" ")) return loginError(client, "Pseudo can't contain spaces");
-            if (!isValidUsername(data["username"])) return loginError(client, "Incorrect username format");
+
+            if (MMO_Core.database.config.passwordRequired && data.password === undefined) {
+                return loginError(client, "Missing password");
+            }
+
+            const user = await MMO_Core.database.findUser(data);
+            if (user === undefined) {
+                return loginError(client, "Bad Credentials");
+            }
+
+            // If passwordRequired is activated then we check for password
+            if (MMO_Core.database.config.passwordRequired && MMO_Core.security.hashPassword(data.password) !== user.password) {
+                return loginError(client, "Bad credentials");
+            }
+
+            const existingPlayer = await MMO_Core.socket.modules.player.subs.player.getPlayer(data.username);
+            if (existingPlayer !== null) {
+                return loginError(client, "Player is already connected.");
+            }
+
+            return loginSuccess(client, user);
+
+            // If user doesn't exist
+        });
+
+        client.on("register", async (data) => {
+            // username validation
+            if (data.username === undefined) {
+                return loginError(client, "Missing username");
+            }
+            if (data.username.includes(" ")) {
+                return loginError(client, "Username can't contain spaces");
+            }
+            if (!/^(?=[a-zA-Z0-9\s]{4,25}$)(?=[a-zA-Z0-9\s])(?:([\w\s*?])\1?(?!\1))+$/.test(data.username)) {
+                return loginError(client, "Incorrect username format");
+            }
             // password validation
-            if(MMO_Core["database"].SERVER_CONFIG["passwordRequired"] && data["password"] === undefined) return loginError(client, "Missing password");             
-      
-            MMO_Core["database"].findUser(data, async (output) => {
-              // If user exist
-              if(output[0] !== undefined) {
+            if (MMO_Core.database.config.passwordRequired && data.password === undefined) {
+                return loginError(client, "Missing password");
+            }
+
+            const user = await MMO_Core.database.findUser(data);
+            // If user exist
+            if (user !== undefined) {
                 return loginError(client, "Cannot create this account."); // Avoid telling that username is taken !
-              }
-      
-              // If user doesn't exist
-              MMO_Core["database"].registerUser(data, (output));
-              return registerSuccess(client);
-            });
-          });
+            }
+
+            // If user doesn't exist
+            await MMO_Core.database.registerUser(data);
+            return registerSuccess(client);
+        });
 
         // Handle the disconnection of a player
-        client.on("disconnect", () => {
+        client.on("disconnect", async () => {
             if (client.lastMap === undefined) {
                 return;
             }
 
-            MMO_Core["gameworld"].removeNode( MMO_Core["gameworld"].getNodeBy("playerId", client.playerData.id) );
-            MMO_Core["gameworld"].playerLeaveInstance(client.playerData.id, parseInt(client.playerData.mapId));
+            MMO_Core.gameworld.removeNode(MMO_Core.gameworld.getNodeBy("playerId", client.playerData.id));
+            MMO_Core.gameworld.playerLeaveInstance(client.playerData.id, parseInt(client.playerData.mapId));
 
             // ANTI-CHEAT : Deleting some entries before saving the character.
             delete (client.playerData.permission); // Avoid permission elevation exploit
@@ -70,10 +78,9 @@ exports.initialize = function() {
 
             MMO_Core.security.createLog(`${client.playerData.username} disconnected from the game.`);
 
-            MMO_Core.database.savePlayer(client.playerData, function(output) {
-                client.broadcast.to(client.lastMap).emit("map_exited", client.id);
-                client.leave(client.lastMap);
-            });
+            await MMO_Core.database.savePlayer(client.playerData);
+            client.broadcast.to(client.lastMap).emit("map_exited", client.id);
+            client.leave(client.lastMap);
         });
     });
 };
@@ -100,7 +107,7 @@ function loginSuccess(client, details) {
     // Then we continue
     client.emit("login_success", { msg: details });
     client.playerData = details;
-    MMO_Core["gameworld"].attachNode(client.playerData, true);
+    MMO_Core.gameworld.attachNode(client.playerData, true);
     MMO_Core.security.createLog(client.playerData.username + " connected to the game");
 }
 
@@ -111,5 +118,5 @@ function loginError(client, message) {
 
 // Register user emitter
 function registerSuccess(client) {
-    client.emit("register_success", {msg: 'Account has been created !'});
-  }
+    client.emit("register_success", { msg: "Account has been created !" });
+}

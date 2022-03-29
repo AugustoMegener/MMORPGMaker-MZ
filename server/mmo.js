@@ -19,7 +19,7 @@ app.use(bodyParser.urlencoded({ extended: true, limit: "2mb" })); // to support 
 app.use(function(req, res, next) { // CORS (read : https://developer.mozilla.org/en-US/docs/Web/HTTP/Access_control_CORS)
     res.statusCode = 200;
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Credentials", true);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Headers", "X-Requested-With, X-Access-Token, X-Socket-ID, Content-Type");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
     next();
@@ -45,28 +45,30 @@ MMO_Core = {
     gameworld: require("./core/gameworld")
 };
 
-try {
-    MMO_Core.gamedata.initialize();
-    MMO_Core.database.initialize(() => { // Initializing the database
-        MMO_Core.database.reloadConfig(() => { // Initializing server config
-            server.listen(MMO_Core.database.SERVER_CONFIG.port); // Listen configured port
+async function main() {
+    try {
+        MMO_Core.gamedata.initialize();
+        await MMO_Core.database.initialize(); // Initializing the database
+        await MMO_Core.database.reloadConfig(); // Initializing server config
+        server.listen(MMO_Core.database.config.port); // Listen configured port
 
-            MMO_Core.socket.initialize(io, MMO_Core.database.SERVER_CONFIG); // Initalizing the socket-side of the server
-            MMO_Core.routes.initialize(app, MMO_Core.database.SERVER_CONFIG, () => { // Initializing the RESTFUL API
-                MMO_Core.gameworld.initialize(); // Initializing world environment
-            });
+        MMO_Core.socket.initialize(io, MMO_Core.database.config); // Initalizing the socket-side of the server
+        MMO_Core.routes.initialize(app, MMO_Core.database.config, () => { // Initializing the RESTFUL API
+            MMO_Core.gameworld.initialize(); // Initializing world environment
         });
-    });
-} catch (err) {
-    console.log(err);
-    MMO_Core.socket.modules.player.subs.auth.saveWorld();
-    server.instance.close();
+    } catch (err) {
+        console.log(err);
+        MMO_Core.socket.modules.player.subs.auth.saveWorld();
+        server.instance.close();
+    }
 }
 
-process.on("SIGINT", function() {
+process.on("SIGINT", async () => {
     console.log("Caught interrupt signal");
     MMO_Core.socket.modules.player.subs.auth.saveWorld();
     MMO_Core.security.saveTokens(function(callback) {
         process.exit();
     });
 });
+
+main();

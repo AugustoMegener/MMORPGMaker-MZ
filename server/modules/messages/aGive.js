@@ -83,12 +83,11 @@ exports.initialize = function() {
             MMO_Core.socket.modules.messages.sendToPlayer(players[targetsName], "System", `${initiator.playerData.username} gave you ${args[3]} in the amount of ${args[4]}!`, "action");
         }
 
-        MMO_Core.database.savePlayer({
+        await MMO_Core.database.savePlayer({
             username: players[targetsName].playerData.username,
             stats: players[targetsName].playerData.stats,
             permission: players[targetsName].playerData.permission
-        }, (e) => {
-            MMO_Core.socket.modules.player.subs.player.refreshData(players[targetsName]);
         });
+        MMO_Core.socket.modules.player.subs.player.refreshData(players[targetsName]);
     };
 };
