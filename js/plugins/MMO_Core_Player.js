@@ -109,7 +109,7 @@ function MMO_Core_Player() {
       }
       if(SceneManager._nextScene instanceof Scene_Map) {
         MMO_Core_Player.Player.isOnMenu = false;
-        MMO_Core_Player.updateBusy(false);        
+        MMO_Core_Player.updateBusy(null);        
       }
     }
 

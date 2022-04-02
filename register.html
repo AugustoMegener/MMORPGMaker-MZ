@@ -7,13 +7,14 @@
   <link rel="apple-touch-icon" href="icon/icon.png">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
   <link rel="stylesheet" href="./register.css">
+  <script src="./js/plugins.js"></script>
   <title>S'inscrire - Naire Online</title>
 </head>
 <body style="margin:0;padding:0;">
   <div class="overlay"></div>
   <div class="container">
     <div class="row register_row">
-    
+
       <div class="col s12" style="float: none; margin: 0 auto; box-sizing: border-box;">
         <div class="card" style="margin: 0;">
           <div class="card-image">
@@ -82,7 +83,7 @@
       }
 
       isFormValid = true; // We first say the form is valid
-      // Then if it's not, do the followings : 
+      // Then if it's not, do the followings :
       if (!userField || !userField.value || !isValidUsername(userField.value) ) { // No username or not valid
         isFormValid = false;
         document.getElementById('usernameformat').style.color = 'red';
@@ -98,11 +99,11 @@
 
       registerBtn.disabled = !isFormValid; // If form is not valid, disable Register button.
     };
-    
+
     const register = (username,password) => {
-      const domain = 'http://localhost:8097'; // TODO : Set your own server (domain name + port, ex : http://mynew.mmo:8097/ )
+      const domain = $plugins.find(plugin => plugin.name === 'MMO_Core').parameters['Server Location']; // TODO : Set your own server (domain name + port, ex : http://mynew.mmo:8097/ )
       const socket = io.connect(domain);
-      // Setting up UI behavior : 
+      // Setting up UI behavior :
       socket.on('login_error', (data,callback) => { // Display UI error when server returns any
         if (data) {
           document.getElementById('serverResponseZone').innerHTML = data.msg;
@@ -118,7 +119,7 @@
           registerBtn.style.display = 'none';
         }
       });
-      // Run the registration, passing username and password as payload. 
+      // Run the registration, passing username and password as payload.
       socket.emit('register', {username, password});
     };
 

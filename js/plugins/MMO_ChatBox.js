@@ -277,7 +277,7 @@ function ChatBox() {
     
     if(!ChatBox.isFocused) MMO_Core.allowTouch = true;
 
-    MMO_Core_Player.updateBusy((ChatBox.isFocused) ? "écrit..." : false)
+    MMO_Core_Player.updateBusy((ChatBox.isFocused) ? "writing" : null)
   }
 
   function freezePlayer(freezePlayer) {
