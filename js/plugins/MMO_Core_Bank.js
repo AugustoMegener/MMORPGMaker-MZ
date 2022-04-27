@@ -18,6 +18,7 @@ function SceneBank() {
 }
 
 (function () {
+  Window_Message.prototype.synchronizeNameBox = () => {};
   MMO_Core_Bank.Bank        = {};
   MMO_Core_Bank.finalItems  = [];
   MMO_Core_Bank.itemCounts  = [];
@@ -35,7 +36,7 @@ function SceneBank() {
     MMO_Core_Bank.itemCounts  = [];
 
     SceneBank.prototype._refreshItems().then(() => {
-      SceneBank.prototype._refreshWindows();   
+      SceneBank.prototype._refreshWindows();
       SceneManager._scene._playerGold.refresh($gameParty.gold());
       SceneManager._scene._bankGold.refresh(MMO_Core_Bank.Bank.content.gold);
     });
@@ -49,20 +50,20 @@ function SceneBank() {
     this._refreshItems();
   };
 
-  SceneBank.prototype._refreshItems = async () => {    
-    return new Promise(resolve => { 
+  SceneBank.prototype._refreshItems = async () => {
+    return new Promise(resolve => {
       for (var k in MMO_Core_Bank.Bank.content.items) {
         if(MMO_Core_Bank.Bank.content.items[k] === 0) continue;
         MMO_Core_Bank.finalItems.push($dataItems[k]);
         MMO_Core_Bank.itemCounts.push(MMO_Core_Bank.Bank.content.items[k]);
       }
       for (var k in MMO_Core_Bank.Bank.content.weapons) {
-        if(MMO_Core_Bank.Bank.content.weapons[k] === 0) continue;        
+        if(MMO_Core_Bank.Bank.content.weapons[k] === 0) continue;
         MMO_Core_Bank.finalItems.push($dataWeapons[k]);
         MMO_Core_Bank.itemCounts.push(MMO_Core_Bank.Bank.content.weapons[k]);
       }
       for (var k in MMO_Core_Bank.Bank.content.armors) {
-        if(MMO_Core_Bank.Bank.content.armors[k] === 0) continue;        
+        if(MMO_Core_Bank.Bank.content.armors[k] === 0) continue;
         MMO_Core_Bank.finalItems.push($dataArmors[k]);
         MMO_Core_Bank.itemCounts.push(MMO_Core_Bank.Bank.content.armors[k]);
       }
@@ -99,7 +100,7 @@ function SceneBank() {
     this.addWindow(this._bankChoice);
 
     this._bankChoiceDeposit.setHandler('items', this.commandDepositItem.bind(this));
-    this._bankChoiceDeposit.setHandler('gold', this.commandDepositGold.bind(this));    
+    this._bankChoiceDeposit.setHandler('gold', this.commandDepositGold.bind(this));
     this._bankChoiceDeposit.setHandler('cancel', this.backToChoice.bind(this));
     this.addWindow(this._bankChoiceDeposit);
 
@@ -120,13 +121,16 @@ function SceneBank() {
     this._bankChoiceDeposit.deactivate();
     this._bankChoiceWithdraw.deactivate();
 
-    this._messageWindow = new Window_Message();
+    this._messageWindow = new Window_Message(new Rectangle(0, 0, 40, 40));
     this.addWindow(this._messageWindow);
 
     this._numberWindow = new Window_NumInput(this._messageWindow);
     this.addWindow(this._numberWindow);
 
-    this._messageWindow.subWindows().forEach(function (window) {
+    this._messageWindow._choiceListWindow = this._bankChoice;
+    this._messageWindow._numberInputWindow = this._numberWindow;
+    this._messageWindow._eventItemWindow = { active: true };
+    this._messageWindow.children.forEach(function (window) {
       this.addWindow(window);
     }, this);
   }
@@ -218,7 +222,8 @@ function SceneBank() {
   Window_BankName.prototype.constructor = Window_BankName;
 
   Window_BankName.prototype.initialize = function (x, y, width, height, text) {
-    Window_Base.prototype.initialize.call(this, x, y, width, height);
+    const rect = new Rectangle(x, y, width, height);
+    Window_Base.prototype.initialize.call(this, rect);
     var textWidth = this.drawTextEx(text, -width, 0);
     this.drawTextEx(text, (width/2) - (textWidth/2) - 10, 0);
   };
@@ -232,7 +237,7 @@ function SceneBank() {
 
   Window_BankChoice.prototype.initialize = function (x, y, width) {
     this._windowWidth = width;
-    Window_HorzCommand.prototype.initialize.call(this, x, y);
+    Window_HorzCommand.prototype.initialize.call(this, new Rectangle(x, y, width, this.innerHeight));
   };
 
   Window_BankChoice.prototype.windowWidth = function () {
@@ -257,7 +262,7 @@ function SceneBank() {
 
   Window_BankCommand.prototype.initialize = function (x, y, width) {
     this._windowWidth = width;
-    Window_HorzCommand.prototype.initialize.call(this, x, y);
+    Window_HorzCommand.prototype.initialize.call(this, new Rectangle(x, y, width, this.innerHeight));
   };
 
   Window_BankCommand.prototype.windowWidth = function () {
@@ -283,7 +288,7 @@ function SceneBank() {
   Window_BankGold.prototype.initialize = function (x, y, value) {
     var width = this.windowWidth();
     var height = this.windowHeight();
-    Window_Base.prototype.initialize.call(this, x, y, width, height);
+    Window_Base.prototype.initialize.call(this, new Rectangle(x, y, width, height));
     this.refresh(value);
   };
 
@@ -296,8 +301,8 @@ function SceneBank() {
   };
 
   Window_BankGold.prototype.refresh = function (value) {
-    var x = this.textPadding();
-    var width = this.contents.width - this.textPadding() * 2;
+    var x = 15;
+    var width = this.contents.width - x * 2;
     this.contents.clear();
     this.drawCurrencyValue(value, TextManager.currencyUnit, x, 0, width);
   };
@@ -311,9 +316,9 @@ function SceneBank() {
   Window_ActorItems.prototype.constructor = Window_ActorItems;
 
   Window_ActorItems.prototype.initialize = function (x, y, width, height) {
-    Window_ItemList.prototype.initialize.call(this, x, y, width, height);
+    Window_ItemList.prototype.initialize.call(this, new Rectangle(x, y, width, height));
     this.refresh();
-    this.resetScroll();
+    // this.resetScroll();
   }
 
   Window_ActorItems.prototype.refresh = function () {
@@ -335,9 +340,9 @@ function SceneBank() {
   Window_BankItems.prototype.constructor = Window_BankItems;
 
   Window_BankItems.prototype.initialize = function (x, y, width, height) {
-    Window_ItemList.prototype.initialize.call(this, x, y, width, height);
+    Window_ItemList.prototype.initialize.call(this, new Rectangle(x, y, width, height));
     this.refresh();
-    this.resetScroll();
+    // this.resetScroll();
   }
 
   Window_BankItems.prototype.refresh = function () {
@@ -353,7 +358,7 @@ function SceneBank() {
     if (item) {
       var numberWidth = this.numberWidth();
       var rect = this.itemRect(index);
-      rect.width -= this.textPadding();
+      rect.width -= 15;
       this.drawItemName(item, rect.x, rect.y, rect.width - numberWidth);
       this.drawItemNumber(count, rect.x, rect.y, rect.width);
     }
@@ -373,7 +378,7 @@ function SceneBank() {
   function Window_NumInput() {
     this.initialize.apply(this, arguments);
   }
-  
+
   Window_NumInput.prototype = Object.create(Window_NumberInput.prototype);
   Window_NumInput.prototype.constructor = Window_NumInput;
 
